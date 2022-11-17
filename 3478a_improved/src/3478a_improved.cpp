@@ -19,12 +19,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
-
-#include <map>
-#include <iostream>
+#include <math.h>
 
 #include "gpib488.h"
-#include <math.h>
+
 
 /* Size of ibrd buffer */
 #define BUF_SIZE 256
