@@ -23,7 +23,7 @@ int get_device(int minor, int pad);
 
 int main( int argc, char *argv[] ) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: ./acquire <PAD> <number of readings>\n");
+        fprintf(stderr, "Usage: %s <PAD> <PNG path>\n", argv[0]);
         exit(1);
     }
 
