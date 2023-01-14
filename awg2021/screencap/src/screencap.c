@@ -1,6 +1,6 @@
 /*
 
-screencapk.c
+screencap.c
 Written by Ryan Davis
 1/13/2023
 
@@ -18,11 +18,13 @@ The resulting PNG is then saved to a path provided by the user.
 #include <limits.h>
 
 #include "gpib/ib.h"
+#include <wand/MagickWand.h>
 
 #define MINOR 0
 
-// TODO: implement png, bitmap has been achieved
-//       make less dangerous
+// TODO: make less dangerous
+//       add QoL features
+//       try something more lightweight than ImageMagick?
 
 
 int get_device(int minor, int pad);
@@ -49,21 +51,8 @@ int main( int argc, char *argv[] ) {
         exit(1);
     }
 
-    char* ext = strrchr(argv[2], '.');
-    if ( ext == NULL || ((strcmp(ext, ".bmp") != 0 && strcmp(ext, ".BMP") != 0)) ) {
-        fprintf(stderr, "Error: file must have .bmp extension.\n");
-        exit(1);
-    }
-
-    FILE * imgPtr = fopen(argv[2], "w");
-    if (imgPtr == NULL) {
-        fprintf(stderr, "Error: file cannot be opened.\n");
-        exit(1);
-    }
-
-
     const int awg2021 = get_device(0,pad);
-    int* buffer = malloc(204800);
+    char* buffer = malloc(204800);
     wrtC(awg2021, "*CLS");
 
     printf("Connection succeeded. ");
@@ -72,11 +61,25 @@ int main( int argc, char *argv[] ) {
     wrtC(awg2021, "HCOPY:FORM BMP;DATA?");
     ibrd(awg2021, buffer, 204800);
 
-    printf("%d KB received. Written to %s\n", ibcnt/1024, argv[2]);
 
+    printf("%d KB received. Written to %s\n", ibcnt/1024, argv[2]);
     
-    fwrite(buffer, 1, ibcnt, imgPtr);
-    fclose(imgPtr);
+
+    // MagickWand image conversion
+    MagickWand *m_wand = NULL;
+    MagickWandGenesis();
+    m_wand = NewMagickWand();
+    MagickReadImageBlob(m_wand, (void*)buffer, ibcnt);
+
+    // Save final image; this method turns a 150KB indexed bitmap into a 7KB PNG.
+    // Also of note is that ImageMagick automatically handles the extension.
+    if (! (MagickWriteImage(m_wand, argv[2]))) {
+        fprintf(stderr, "Image writing failed! Is your filename correct?");
+    }
+
+    // clean up
+    DestroyMagickWand(m_wand);
+    MagickWandTerminus();
 
     free(buffer);
 }
