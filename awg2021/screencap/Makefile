@@ -1,12 +1,12 @@
 CC = gcc
-CFLAGS = -Wall -Iinclude
-LDFLAGS = -lgpib
+CFLAGS = -Wall -I./include
+LDFLAGS = -lgpib -lpng -lm
 PROG = screencap
 
 all: $(PROG)
 
 $(PROG): src/$(PROG).c
-	$(CC) -x c $(CFLAGS) $^ `pkg-config --cflags --libs MagickWand` -o bin/$@ $(LDFLAGS)
+	$(CC) -x c -g $(CFLAGS) $^ -o bin/$@ $(LDFLAGS)
 
 clean: 
 	rm -f *~ *.o $(PROG) core a.out

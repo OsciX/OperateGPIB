@@ -17,14 +17,17 @@ The resulting PNG is then saved to a path provided by the user.
 #include <stdint.h>
 #include <limits.h>
 
+#include <math.h>
+#include <malloc.h>
+#include <png.h>
 #include "gpib/ib.h"
-#include <wand/MagickWand.h>
 
 #define MINOR 0
 
 // TODO: make less dangerous
 //       add QoL features
-//       try something more lightweight than ImageMagick?
+//       redo remapping using struct
+//       finish PNG implementation
 
 
 int get_device(int minor, int pad);
@@ -61,26 +64,33 @@ int main( int argc, char *argv[] ) {
     wrtC(awg2021, "HCOPY:FORM BMP;DATA?");
     ibrd(awg2021, buffer, 204800);
 
+    FILE* bmp = fopen(argv[2], "w");
+    fwrite(buffer, 1, ibcnt, bmp);
+    fclose(bmp);
 
     printf("%d KB received. Written to %s\n", ibcnt/1024, argv[2]);
     
+    long int px = 0x0A;
 
-    // MagickWand image conversion
-    MagickWand *m_wand = NULL;
-    MagickWandGenesis();
-    m_wand = NewMagickWand();
-    MagickReadImageBlob(m_wand, (void*)buffer, ibcnt);
+    char pixeltable[480][640];
+    for (int y = 0; y < 479; y++) // set row
+    {
+        for (int x = 0; x < 639 ; x += 2)
+        {
+            // first pixel represented in first four bytes, scaled to 0-255
+            pixeltable[y][x] = (buffer[px] >> 4);
+            // second pixel represented in next four bytes, scaled to 0-255
+            pixeltable[y+1][x] = (buffer[px] & 0xF);
 
-    // Save final image; this method turns a 150KB indexed bitmap into a 7KB PNG.
-    // Also of note is that ImageMagick automatically handles the extension.
-    if (! (MagickWriteImage(m_wand, argv[2]))) {
-        fprintf(stderr, "Image writing failed! Is your filename correct?");
+            printf("(%d %d):\t%d\n(%d %d):\t%d\n", y, x, pixeltable[y][x], y+1, x, pixeltable[y+1][x]);
+
+            px++;
+        }
+        //printf("\n");
     }
 
-    // clean up
-    DestroyMagickWand(m_wand);
-    MagickWandTerminus();
-
+    // pixel table has been completed
+    
     free(buffer);
 }
 
