@@ -71,11 +71,7 @@ int main( int argc, char *argv[] ) {
         fprintf(stderr, "Error: missing bytes!\n");
         exit(1);
     }
-
-    FILE* bmp = fopen(argv[2], "w");
-    fwrite(buffer, 1, 153719, bmp);
-    fclose(bmp);
-
+    
     if (savePng(buffer, argv[2]) == 0) {
         printf("Image saved at %s.\n", argv[2]);
     } else {
