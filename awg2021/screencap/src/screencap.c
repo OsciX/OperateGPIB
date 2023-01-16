@@ -18,25 +18,15 @@ The resulting PNG is then saved to a path provided by the user.
 #include <limits.h>
 
 #include <math.h>
-#include <malloc.h>
 #include <png.h>
 #include "gpib/ib.h"
 
 #define MINOR 0
 
-// TODO: make less dangerous
-//       add QoL features
-//       finish PNG implementation
-
-
-typedef struct pixel_t {
-    uint8_t red;
-    uint8_t green;
-    uint8_t blue;
-} pixel_t;
+// TODO: add QoL features
 
 int get_device(int minor, int pad);
-int savePng(char* bmpBuffer, char* path);
+int savePng(uint8_t* bmpBuffer, char* path);
 
 int wrtC(int ud, char* cmd) {
     return ibwrt(ud, cmd, strlen(cmd));
@@ -49,7 +39,6 @@ int main( int argc, char *argv[] ) {
     }
 
     const int pad = atoi(argv[1]);
-
     if (pad < 0 || pad > 30) {
         fprintf(stderr, "Error: PAD must be between 0 and 30.\n");
         exit(1);
@@ -60,20 +49,40 @@ int main( int argc, char *argv[] ) {
         exit(1);
     }
 
+     if (strcmp(".png", strrchr(argv[2], '.')) != 0) {
+        fprintf(stderr, "Error: format must be '.png'.\n");
+        exit(1);
+    }
+
+    // Get device, and allocate buffer to hold the screencapture.
     const int awg2021 = get_device(0,pad);
-    char* buffer = malloc(204800);
+    uint8_t* buffer = malloc(153719);
     wrtC(awg2021, "*CLS");
 
     printf("Connection succeeded. ");
     fflush(stdout);
 
+    // Ask for a bitmap-format screencapture.
+    // This format will always be an uncompressed 4 bit grayscale 640x480 BMP image, with 2px/byte.
     wrtC(awg2021, "HCOPY:FORM BMP;DATA?");
-    ibrd(awg2021, buffer, 204800);
-    savePng(buffer, argv[2]);
+    ibrd(awg2021, buffer, 153719);
+
+    if (ibcnt != 153719) {
+        fprintf(stderr, "Error: missing bytes!\n");
+        exit(1);
+    }
+
+    FILE* bmp = fopen(argv[2], "w");
+    fwrite(buffer, 1, 153719, bmp);
+    fclose(bmp);
+
+    if (savePng(buffer, argv[2]) == 0) {
+        printf("Image saved at %s.\n", argv[2]);
+    } else {
+        printf("An error occurred in PNG conversion.\n");
+    }
 
     free(buffer);
-
-
 }
 
 int get_device(int minor, int pad) {
@@ -94,55 +103,30 @@ int get_device(int minor, int pad) {
 	return ud;
 }
 
-int savePng(char* bmpBuffer, char* path) {
+
+// Based on the excellent example code by Ben Bullock
+// https://www.lemoda.net/c/write-png/
+
+int savePng(uint8_t* bmpBuffer, char* path) {
     FILE * fp;
     png_structp png_ptr = NULL;
     png_infop info_ptr = NULL;
     size_t x, y;
-    png_byte ** row_pointers = NULL;
+    png_byte **row_pointers = NULL;
 
     size_t width = 640;
     size_t height = 480;
 
-     /* "status" contains the return value of this function. At first
-       it is set to a value which means 'failure'. When the routine
-       has finished its work, it is set to a value which means
-       'success'. */
+    // fail at first, succeed when done
     int status = -1;
 
-    /* The following number is set by trial and error only. I cannot
-       see where it it is documented in the libpng manual.
-    */
-    int pixel_size = 3;
-    int depth = 8;
+    // set bit depth
+    int depth = 4;
     
     fp = fopen (path, "wb");
     if (! fp) {
         goto fopen_failed;
     }
-
-
-    long int px = bmpBuffer[0x0A];
-    struct pixel_t pixeltable[480][640];
-    for (int y = 479; y >= 0; y--) // set row
-    {
-        for (int x = 0; x < 639 ; x += 2)
-        {
-            // first pixel represented in first four bytes, scaled to 0-255
-            pixeltable[y][x].red = 255 - (((bmpBuffer[px] >> 4) + 1)*16);
-            pixeltable[y][x].green = 255 - (((bmpBuffer[px] >> 4) + 1)*16);
-            pixeltable[y][x].blue = 255 - (((bmpBuffer[px] >> 4) + 1)*16);
-
-            // second pixel represented in next four bytes, scaled to 0-255
-           
-            pixeltable[y][x+1].red =  255 - (((bmpBuffer[px] & 0xF) + 1)*16);
-            pixeltable[y][x+1].green =  255 - (((bmpBuffer[px] & 0xF) + 1)*16);
-            pixeltable[y][x+1].blue =  255 - (((bmpBuffer[px] & 0xF) + 1)*16);
-
-            px++;
-        }
-    }
-
 
     png_ptr = png_create_write_struct (PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (png_ptr == NULL) {
@@ -154,58 +138,57 @@ int savePng(char* bmpBuffer, char* path) {
         goto png_create_info_struct_failed;
     }
     
-    /* Set up error handling. */
-
+    // Error handling
     if (setjmp (png_jmpbuf (png_ptr))) {
         goto png_failure;
     }
     
-    /* Set image attributes. */
-
+    // Image attributes
     png_set_IHDR (png_ptr,
                   info_ptr,
                   width,
                   height,
                   depth,
-                  PNG_COLOR_TYPE_RGB,
+                  PNG_COLOR_TYPE_GRAY,
                   PNG_INTERLACE_NONE,
                   PNG_COMPRESSION_TYPE_DEFAULT,
                   PNG_FILTER_TYPE_DEFAULT);
     
-    /* Initialize rows of PNG. */
-
+    // Row pointers
     row_pointers = png_malloc (png_ptr, height * sizeof (png_byte *));
+
     for (y = 0; y < height; y++) {
-        png_byte *row = png_malloc (png_ptr, sizeof (uint8_t) * width * pixel_size);
-        row_pointers[y] = row;
-        for (x = 0; x < width; x++) {
-            *row++ = pixeltable[y][x].red;
-            *row++ = pixeltable[y][x].green;
-            *row++ = pixeltable[y][x].blue;
+        png_byte *row = png_malloc (png_ptr, sizeof (uint8_t) * (width / 2));
+
+        // fill row pointers backwards in order to flip image vertically
+        row_pointers[height-1-y] = row;
+
+        // Pick up 4 bit-packed grayscale colors directly from bitmap buffer
+        // PNG packs in the exact same way
+        for (x = 0; x < width/2; x++) {
+            *row++ = bmpBuffer[118 + y*(width/2) + x];
         }
     }
     
-    /* Write the image data to "fp". */
-
+    // Write image data and indicate our success
     png_init_io (png_ptr, fp);
+    png_set_compression_level(png_ptr, 9);
     png_set_rows (png_ptr, info_ptr, row_pointers);
     png_write_png (png_ptr, info_ptr, PNG_TRANSFORM_IDENTITY, NULL);
-
-    /* The routine has successfully written the file, so we set
-       "status" to a value which indicates success. */
-
     status = 0;
     
+    // clean up
     for (y = 0; y < height; y++) {
         png_free (png_ptr, row_pointers[y]);
     }
     png_free (png_ptr, row_pointers);
     
- png_failure:
- png_create_info_struct_failed:
-    png_destroy_write_struct (&png_ptr, &info_ptr);
- png_create_write_struct_failed:
-    fclose (fp);
- fopen_failed:
-    return status;
+    // error cases
+    png_failure:
+    png_create_info_struct_failed:
+        png_destroy_write_struct (&png_ptr, &info_ptr);
+    png_create_write_struct_failed:
+        fclose (fp);
+    fopen_failed:
+        return status;
 }

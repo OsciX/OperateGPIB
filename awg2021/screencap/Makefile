@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -I./include
+CFLAGS = -Wall
 LDFLAGS = -lgpib -lpng -lm
 PROG = screencap
 
