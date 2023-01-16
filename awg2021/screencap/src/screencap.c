@@ -30,6 +30,14 @@ The resulting PNG is then saved to a path provided by the user.
 //       finish PNG implementation
 
 
+struct bmPx {
+   unsigned int left : 4;
+   unsigned int right : 4;
+};
+
+
+
+
 int get_device(int minor, int pad);
 
 int wrtC(int ud, char* cmd) {
@@ -64,25 +72,21 @@ int main( int argc, char *argv[] ) {
     wrtC(awg2021, "HCOPY:FORM BMP;DATA?");
     ibrd(awg2021, buffer, 204800);
 
-    FILE* bmp = fopen(argv[2], "w");
-    fwrite(buffer, 1, ibcnt, bmp);
-    fclose(bmp);
-
-    printf("%d KB received. Written to %s\n", ibcnt/1024, argv[2]);
     
-    long int px = 0x0A;
+    
+    long int px = buffer[0x0A];
 
     char pixeltable[480][640];
-    for (int y = 0; y < 479; y++) // set row
+    for (int y = 0; y < 480; y++) // set row
     {
         for (int x = 0; x < 639 ; x += 2)
         {
             // first pixel represented in first four bytes, scaled to 0-255
             pixeltable[y][x] = (buffer[px] >> 4);
             // second pixel represented in next four bytes, scaled to 0-255
-            pixeltable[y+1][x] = (buffer[px] & 0xF);
+            pixeltable[y][x+1] = (buffer[px] & 0xF);
 
-            printf("(%d %d):\t%d\n(%d %d):\t%d\n", y, x, pixeltable[y][x], y+1, x, pixeltable[y+1][x]);
+            //printf("(%d %d):\t%d\n(%d %d):\t%d\n", y, x, pixeltable[y][x], y, x+1, pixeltable[y][x+1]);
 
             px++;
         }
@@ -91,10 +95,26 @@ int main( int argc, char *argv[] ) {
 
     // pixel table has been completed
     
+    FILE* bmp = fopen(argv[2], "w");
+
+    fwrite(buffer, 1, buffer[0x0A], bmp);
+    printf("Header: %d bytes written", buffer[0x0A]);
+    px = buffer[0x0A];
+    for (int y = 0; y < 480; y++) // set row
+        {
+            for (int x = 0; x < 639 ; x += 2){
+                char hold = (pixeltable[y][x]<<4 | pixeltable[y][x+1]);
+                fwrite(&hold, 1, 1, bmp);
+                px++;
+            }
+        }
+            
+    
+    fclose(bmp);
+
+    printf("%d KB received. (%d bytes total.) Written to %s\n", ibcnt/1024, ibcnt, argv[2]);
     free(buffer);
 }
-
-
 
 int get_device(int minor, int pad) {
 	int ud;
